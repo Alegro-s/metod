@@ -1,0 +1,69 @@
+title: Wallet
+version: 1
+base_url: https://wallet.example/api
+auth:
+  type: api_key
+  in: header
+  name: X-Wallet-Key
+endpoints:
+  - method: POST
+    path: /out
+    operation_id: send
+    tags: [payout]
+    request:
+      example:
+        amount: 500
+        currency: KZT
+        external_id: op_abc123
+      fields:
+        - name: amount
+          type: number
+          minimum: 100
+          required: true
+        - name: currency
+          type: string
+          enum: [KZT]
+          required: true
+        - name: external_id
+          type: string
+          required: true
+    responses:
+      - http_status: 201
+        example:
+          id: w_9
+          status: created
+      - http_status: 400
+        example:
+          error:
+            code: validation_error
+  - method: GET
+    path: /out/{id}
+    operation_id: status
+    responses:
+      - http_status: 200
+        example:
+          id: w_9
+          status: paid
+        fields:
+          - name: status
+            enum: [created, paid, declined]
+  - method: POST
+    path: /notify
+    operation_id: notify
+    tags: [callback]
+    parameters:
+      - name: X-Wallet-Signature
+        in: header
+        description: HMAC-SHA256 hex
+    request:
+      fields:
+        - name: event
+          enum: [payout.done, payout.failed]
+        - name: payment_id
+      example:
+        event: payout.done
+        payment_id: w_9
+statuses:
+  - created
+  - paid
+  - declined
