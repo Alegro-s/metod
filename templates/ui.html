@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>integrate — генератор интеграций</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #171e27;
+      --line: #2a3542;
+      --text: #e8eef4;
+      --muted: #8b9aab;
+      --accent: #d4a017;
+      --ok: #3d9a6a;
+      --warn: #d4a017;
+      --err: #d25b5b;
+      --chip: #243041;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 ui-sans-serif, system-ui, sans-serif; }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px; border-bottom: 1px solid var(--line);
+    }
+    header strong { letter-spacing: 0.04em; }
+    header span { color: var(--muted); }
+    .layout { display: grid; grid-template-columns: 1fr 1fr; height: calc(100% - 54px); }
+    section { padding: 16px 20px; overflow: auto; }
+    section + section { border-left: 1px solid var(--line); }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+    button, select, input[type=text] {
+      background: var(--chip); color: var(--text); border: 1px solid var(--line);
+      border-radius: 6px; padding: 8px 10px; font: inherit;
+    }
+    button { cursor: pointer; }
+    button.primary { background: var(--accent); color: #1a1404; border-color: var(--accent); font-weight: 600; }
+    button:hover { filter: brightness(1.08); }
+    textarea {
+      width: 100%; min-height: 220px; background: #0c1015; color: var(--text);
+      border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px/1.4 ui-monospace, monospace;
+    }
+    textarea.config { min-height: 90px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 500; }
+    .role { display: inline-block; padding: 1px 6px; border-radius: 999px; background: var(--chip); font-size: 11px; }
+    .role.create { color: #7dcea0; }
+    .role.fetch { color: #7eb6d9; }
+    .role.webhook { color: #e0c36a; }
+    .role.cancel { color: #c9a0e0; }
+    .role.unknown { color: #d25b5b; }
+    .warn { background: #2a230e; border: 1px solid #5a4a14; color: #f0d58a; padding: 8px 10px; border-radius: 8px; margin: 6px 0; }
+    .ok { color: var(--ok); }
+    .err { color: var(--err); }
+    .tabs { display: flex; gap: 6px; margin: 12px 0; }
+    .tabs button.active { border-color: var(--accent); color: var(--accent); }
+    pre {
+      background: #0c1015; border: 1px solid var(--line); border-radius: 8px;
+      padding: 12px; overflow: auto; font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap;
+    }
+    .empty { color: var(--muted); padding: 24px 0; }
+    label { color: var(--muted); font-size: 12px; display: block; margin: 8px 0 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><strong>integrate</strong> <span>YAML → IR → сервис / MD / fixtures</span></div>
+    <span>без нейросетей · один движок с CLI</span>
+  </header>
+  <div class="layout">
+    <section>
+      <h2>Спецификация</h2>
+      <div class="row">
+        <button type="button" data-example="novapay">NovaPay</button>
+        <button type="button" data-example="payflow">Payflow</button>
+        <button type="button" data-example="wallet">Плоский YAML</button>
+        <input id="file" type="file" accept=".yaml,.yml">
+      </div>
+      <label>Провайдер</label>
+      <input id="provider" type="text" value="novapay">
+      <label>provider_api.yaml</label>
+      <textarea id="spec" placeholder="Вставьте OpenAPI 3.x или плоский YAML"></textarea>
+      <label>.spacegen.yml (необязательно)</label>
+      <textarea id="config" class="config" placeholder="Переопределения ролей, статусов, gateway"></textarea>
+      <div class="row">
+        <button type="button" id="parse">Разобрать</button>
+        <button type="button" class="primary" id="generate">Сгенерировать</button>
+      </div>
+      <div id="error"></div>
+    </section>
+    <section>
+      <h2>Как система поняла spec</h2>
+      <div id="understanding" class="empty">Загрузите пример или свой YAML.</div>
+      <div id="artifacts" hidden>
+        <h2>Артефакты</h2>
+        <div id="syntax"></div>
+        <div class="tabs">
+          <button type="button" data-tab="service" class="active">Сервис</button>
+          <button type="button" data-tab="md">INTEGRATION.md</button>
+          <button type="button" data-tab="fixtures">fixtures.json</button>
+          <button type="button" data-tab="ir">IR</button>
+        </div>
+        <pre id="preview"></pre>
+      </div>
+    </section>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const files = {};
+    let activeTab = "service";
+
+    async function api(path, body) {
+      const res = await fetch(path, {
+        method: body ? "POST" : "GET",
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      return data;
+    }
+
+    function payload() {
+      return { spec: $("spec").value, provider: $("provider").value, config: $("config").value };
+    }
+
+    function showError(msg) {
+      $("error").innerHTML = msg ? `<div class="warn">${msg}</div>` : "";
+    }
+
+    function renderIR(ir) {
+      const rows = (ir.endpoints || []).map((ep) => `
+        <tr>
+          <td><span class="role ${ep.role}">${ep.role}</span></td>
+          <td>${ep.method} ${ep.path}</td>
+          <td>${ep.operation_id || ""}</td>
+        </tr>`).join("");
+      const warns = (ir.warnings || []).map((w) =>
+        `<div class="warn">${w.path ? w.path + ": " : ""}${w.code} — ${w.message}</div>`
+      ).join("");
+      const auth = ir.auth || {};
+      $("understanding").innerHTML = `
+        <p>Формат: <strong>${ir.format === "openapi" ? "OpenAPI " + ir.version : "плоский YAML"}</strong>
+        · Auth: <strong>${auth.type || "none"}</strong> ${auth.name || ""}</p>
+        <table>
+          <thead><tr><th>Роль</th><th>Эндпоинт</th><th>operationId</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${warns || ""}
+      `;
+    }
+
+    function fileKey(name) {
+      if (name.endsWith("_service.rb")) return "service";
+      if (name === "INTEGRATION.md") return "md";
+      if (name === "fixtures.json") return "fixtures";
+      if (name === "ir.json") return "ir";
+      return name;
+    }
+
+    function showTab(tab) {
+      activeTab = tab;
+      document.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+      $("preview").textContent = files[tab] || "";
+    }
+
+    $("parse").onclick = async () => {
+      showError("");
+      try {
+        const data = await api("/api/parse", payload());
+        renderIR(data.ir);
+      } catch (e) { showError(e.message); }
+    };
+
+    $("generate").onclick = async () => {
+      showError("");
+      try {
+        const data = await api("/api/generate", payload());
+        renderIR(data.ir);
+        Object.keys(files).forEach((k) => delete files[k]);
+        Object.entries(data.files || {}).forEach(([name, content]) => { files[fileKey(name)] = content; });
+        $("artifacts").hidden = false;
+        $("syntax").innerHTML = data.syntax_ok
+          ? `<p class="ok">ruby -c: OK${data.missing_methods?.length ? " · нет методов: " + data.missing_methods.join(", ") : ""}</p>`
+          : `<p class="err">ruby -c: FAIL ${data.syntax_error || ""}</p>`;
+        showTab(activeTab);
+      } catch (e) { showError(e.message); }
+    };
+
+    document.querySelectorAll("[data-example]").forEach((btn) => {
+      btn.onclick = async () => {
+        showError("");
+        const data = await api("/api/examples/" + btn.dataset.example);
+        $("provider").value = data.provider;
+        $("spec").value = data.spec;
+        $("config").value = data.config || "";
+      };
+    });
+
+    document.querySelectorAll("[data-tab]").forEach((btn) => {
+      btn.onclick = () => showTab(btn.dataset.tab);
+    });
+
+    $("file").onchange = async (ev) => {
+      const file = ev.target.files[0];
+      if (!file) return;
+      $("spec").value = await file.text();
+    };
+
+    api("/api/examples/novapay").then((data) => {
+      $("provider").value = data.provider;
+      $("spec").value = data.spec;
+      $("config").value = data.config || "";
+    }).catch(() => {});
+  </script>
+</body>
+</html>

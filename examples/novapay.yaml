@@ -1,0 +1,258 @@
+openapi: 3.0.3
+info:
+  title: NovaPay
+  version: 1.0.0
+  x-space-gateway:
+    external_method: sbp_payout
+    gateway: RUB_SBP_WITHDRAW
+servers:
+  - url: https://api.sandbox.novapay.example/v1
+security:
+  - ApiKeyAuth: []
+tags:
+  - name: payout
+  - name: webhook
+paths:
+  /payouts:
+    post:
+      operationId: create_payout
+      tags: [payout]
+      summary: Create payout
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePayoutRequest"
+            example:
+              amount: 1500000
+              currency: RUB
+              external_id: op_abc123
+              recipient:
+                type: sbp
+                phone: "79001234567"
+                bank_code: "044525225"
+                bank_name: Sberbank
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payout"
+              example:
+                id: np_7f3a9b2c
+                status: pending
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: validation_error
+                  message: Invalid payload
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: unauthorized
+        "402":
+          description: Insufficient balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: insufficient_balance
+        "422":
+          description: Amount too low
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: validation_error
+                  message: Amount must be at least 100000 kopecks
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: rate_limit_exceeded
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: internal_error
+  /payouts/{id}:
+    get:
+      operationId: get_status
+      tags: [payout]
+      summary: Get payout status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payout"
+              example:
+                id: np_7f3a9b2c
+                status: completed
+  /payouts/{id}/cancel:
+    post:
+      operationId: cancel
+      tags: [payout]
+      summary: Cancel payout
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payout"
+              example:
+                id: np_7f3a9b2c
+                status: cancelled
+  /webhooks/payout:
+    post:
+      operationId: webhook
+      tags: [webhook]
+      summary: Payout callback
+      parameters:
+        - name: X-NovaPay-Signature
+          in: header
+          required: true
+          description: HMAC-SHA256 hex signature of the raw body
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookPayload"
+            example:
+              event: payout.completed
+              payout_id: np_7f3a9b2c
+              status: completed
+      responses:
+        "200":
+          description: Accepted
+  /balance:
+    get:
+      operationId: get_balance
+      tags: [payout]
+      summary: Merchant balance
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  amount:
+                    type: integer
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    CreatePayoutRequest:
+      type: object
+      required: [amount, currency, external_id, recipient]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 100000
+          description: Amount in kopecks
+          example: 1500000
+        currency:
+          type: string
+          enum: [RUB]
+        external_id:
+          type: string
+        recipient:
+          $ref: "#/components/schemas/Recipient"
+    Recipient:
+      type: object
+      required: [type, phone, bank_code]
+      properties:
+        type:
+          type: string
+          enum: [sbp]
+        phone:
+          type: string
+        bank_code:
+          type: string
+        bank_name:
+          type: string
+    Payout:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed, cancelled]
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+    WebhookPayload:
+      type: object
+      properties:
+        event:
+          type: string
+          enum: [payout.completed, payout.failed]
+        payout_id:
+          type: string
+        status:
+          type: string
+        error:
+          type: object
+          properties:
+            code:
+              type: string

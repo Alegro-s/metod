@@ -1,0 +1,20 @@
+<%= JSON.pretty_generate(
+  {
+    "create_request" => {
+      "request" => fixture_request,
+      "response_201" => create_success_example,
+      "response_422" => create_error_example
+    },
+    "fetch_status" => {
+      "response_200" => fetch_example
+    },
+    "callback" => {
+      "payload" => callback_payload("approve"),
+      "expected_operation_status" => "approved"
+    },
+    "callback_failed" => {
+      "payload" => callback_payload("reject"),
+      "expected_operation_status" => "rejected"
+    }
+  }
+) %>

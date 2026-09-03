@@ -1,0 +1,76 @@
+# <%= (ir["title"] || provider["class_name"]) %> Integration Guide
+
+## Авторизация
+
+- Тип: <%= auth_title %>
+<% if auth["type"] == "api_key" && auth["in"] == "query" -%>
+- Query: `<%= auth["name"] %>=<credentials.<%= auth["credentials_key"] %>>`
+<% elsif auth["type"] == "api_key" -%>
+- Header: `<%= auth["name"] %>: <credentials.<%= auth["credentials_key"] %>>`
+<% elsif auth["type"] == "oauth2" -%>
+- Header: `Authorization: Bearer <token>`
+- Токен OAuth2 получают снаружи, генератор подставляет Bearer
+<% elsif auth["type"] == "bearer" -%>
+- Header: `Authorization: Bearer <credentials.<%= auth["credentials_key"] || "token" %>>`
+<% else -%>
+- Авторизация в спецификации не распознана
+<% end -%>
+- Хранение: `providers.credentials` (encrypted)
+
+## Методы
+
+| Метод | Endpoint | Назначение | Idempotency |
+|-------|----------|------------|-------------|
+<% endpoints.each do |ep| -%>
+| <%= ep["operation_id"] || ep["role"] %> | <%= ep["method"] %> <%= ep["path"] %> | <%= purpose_for(ep) %> | <%= idempotency_cell(ep) %> |
+<% end -%>
+
+## Маппинг статусов
+
+<% if status_map.empty? -%>
+Статусы в спецификации не найдены — таблица пустая, генератор не выдумывает значения.
+<% else -%>
+| Provider | Space Payments |
+|----------|----------------|
+<% status_map.each do |from, to| -%>
+| <%= from %> | <%= to %> |
+<% end -%>
+<% end -%>
+
+## Обработка ошибок
+
+<% if error_map.empty? -%>
+HTTP-ошибки в спецификации не описаны.
+<% else -%>
+| HTTP | Provider code | Действие |
+|------|---------------|----------|
+<% error_map.each do |row| -%>
+| <%= row["http"] %> | <%= row["provider_code"] %> | <%= row["action"] %> |
+<% end -%>
+<% end -%>
+
+## ProviderGateway config
+
+<% if gateway && gateway["gateway"] -%>
+```json
+<%= JSON.pretty_generate(gateway) %>
+```
+<% else -%>
+TODO: задайте `gateway` в `.spacegen.yml` или в spec (`x-space-gateway` / ключ `gateway`). Генератор не угадывает код шлюза.
+<% end -%>
+
+## Webhook signature
+
+<% if webhook && webhook["header"] -%>
+<%= webhook["algorithm"] %>(body, callback_secret) → <%= webhook["encoding"] %> → <%= webhook["header"] %>
+<% else -%>
+Подпись webhook в спецификации не найдена.
+<% end -%>
+
+<% unless warnings.empty? -%>
+## Warnings генератора
+
+<% warnings.each do |warning| -%>
+- `<%= warning["code"] %>`<%= warning["path"] ? " (#{warning["path"]})" : "" %>: <%= warning["message"] %>
+<% end -%>
+<% end -%>
